@@ -70,12 +70,7 @@ Installation & Setup
 
     pip install -r requirements.txt
 
-    (You'll need to create a requirements.txt file containing at least requests, ollama, and rich)
-
-    # requirements.txt
-    requests
-    ollama
-    rich
+    (Ensure you have a requirements.txt file in your repository with the content below)
 
     Configure Environment Variables (Recommended):
 
