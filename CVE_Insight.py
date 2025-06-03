@@ -18,10 +18,14 @@ from rich.markdown import Markdown
 from rich.columns import Columns
 
 # --- Ollama Configuration ---
-MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gemma3:4b") # User can set via environment variable
+MODEL_NAME = os.environ.get("OLLAMA_MODEL", "gemma3:12b") # User can set via environment variable
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 NO_WORKAROUND_FOUND_MARKER = "[[NO_WORKAROUND_FOUND_MARKER]]"
 GENERIC_MITIGATION_NOT_FOUND_TEXT = "No specific mitigation or workaround actions were identified in the available description."
+# --- ---
+
+# --- CISA KEV Configuration ---
+CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 # --- ---
 
 console = Console()
@@ -37,11 +41,12 @@ EMOJI_EDIT = "✍️"
 EMOJI_TOOL = "🛠️"
 EMOJI_EYES = "👀"
 EMOJI_CHECK = "🔍"
-EMOJI_SAVE = "💾" # Kept for conceptual "saving" of user choices, not DB
+EMOJI_SAVE = "💾" 
 EMOJI_LIST = "📋"
 EMOJI_EXPLAIN = "🧠"
 EMOJI_PATCH = "🩹"
 EMOJI_POC = "🧪"
+EMOJI_CISA = "🇺🇸" # For CISA KEV
 
 # --- "CVE Insight" Banner ---
 BANNER_TEXT_CONTENT = 'CVE INSIGHT'
@@ -65,6 +70,7 @@ def print_step_context(step_context_key, icon="➡️"):
         "fetch_nvd": f"{EMOJI_FETCH} Fetching NVD Data",
         "fetch_cve_org": f"{EMOJI_FETCH} Fetching CVE.org (MITRE) Data",
         "fetch_debian": f"{EMOJI_FETCH} Fetching Debian Security Tracker Data",
+        "fetch_cisa_kev": f"{EMOJI_CISA} Fetching CISA Known Exploited Vulnerabilities (KEV)",
         "fetch_github_pocs": f"{EMOJI_POC} Searching GitHub for PoCs/Exploits",
         "analyze_description": f"{EMOJI_AI} Analyzing CVE Description with LLM",
         "generate_component": f"{EMOJI_AI} Suggesting Affected Component(s)",
@@ -75,6 +81,7 @@ def print_step_context(step_context_key, icon="➡️"):
         "display_cvss": f"{EMOJI_LIST} Displaying CVSS Information",
         "display_cwe": f"{EMOJI_CHECK} Displaying CWE Information",
         "display_debian": f"{EMOJI_LIST} Displaying Debian Patch Information",
+        "display_cisa_kev": f"{EMOJI_CISA} Displaying CISA KEV Information",
         "display_pocs": f"{EMOJI_LIST} Displaying Potential PoCs/Exploits",
         "user_confirmation": f"{EMOJI_EYES} User Confirmation/Input"
     }
@@ -84,13 +91,11 @@ def print_step_context(step_context_key, icon="➡️"):
 def get_cve_description_from_sources(cve_id, nvd_data, mitre_data):
     """Attempts to get the best English CVE description from NVD or MITRE data."""
     descriptions = []
-    # Try NVD first
     if nvd_data and "descriptions" in nvd_data:
         for desc in nvd_data["descriptions"]:
             if desc.get("lang") == "en":
                 descriptions.append({"source": "NVD", "value": desc.get("value","")})
 
-    # Try MITRE if NVD fails or to get alternatives
     if mitre_data:
         cna_descriptions = mitre_data.get("containers", {}).get("cna", {}).get("descriptions", [])
         for desc_entry in cna_descriptions:
@@ -98,7 +103,6 @@ def get_cve_description_from_sources(cve_id, nvd_data, mitre_data):
                 descriptions.append({"source": "MITRE/CVE.org", "value": desc_entry.get("value","")})
     
     if descriptions:
-        # Simple preference: NVD > MITRE if both exist.
         nvd_desc = next((d['value'] for d in descriptions if d['source'] == 'NVD' and d['value']), None)
         if nvd_desc:
             console.print(f"{EMOJI_INFO} Using primary description from NVD for {cve_id}.")
@@ -257,6 +261,57 @@ def display_debian_data(debian_data, cve_id):
 
     console.print(Panel(Group(*panel_content), title=f"{EMOJI_LIST} Debian Security Tracker Details", border_style="blue", expand=False))
 
+def fetch_cisa_kev_data():
+    """Fetches the CISA Known Exploited Vulnerabilities (KEV) catalog."""
+    print_step_context("fetch_cisa_kev")
+    with console.status(f"[bold green]Fetching CISA KEV catalog from {CISA_KEV_URL}...[/bold green]", spinner="dots"):
+        try:
+            time.sleep(0.5) # Politeness
+            headers = {'User-Agent': 'CVE-Insight-Tool/1.0'}
+            response = requests.get(CISA_KEV_URL, timeout=20, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            console.print(f"{EMOJI_SUCCESS} CISA KEV catalog successfully fetched.")
+            return data.get("vulnerabilities", []) # The list of vulnerabilities
+        except requests.exceptions.RequestException as e:
+            console.print(f"{EMOJI_ERROR} [red]Error fetching CISA KEV catalog: {e}[/red]")
+            return None
+        except json.JSONDecodeError:
+            console.print(f"{EMOJI_ERROR} [red]Error decoding JSON from CISA KEV catalog.[/red]")
+            return None
+
+def check_cve_in_kev(cve_id, kev_catalog):
+    """Checks if a CVE ID is present in the fetched KEV catalog."""
+    if not kev_catalog:
+        return None
+    for vuln in kev_catalog:
+        if vuln.get("cveID") == cve_id:
+            return vuln
+    return None
+
+def display_cisa_kev_info(kev_entry, cve_id):
+    """Displays information if the CVE is found in CISA KEV."""
+    if not kev_entry:
+        console.print(f"{EMOJI_INFO} CVE {cve_id} not found in CISA's Known Exploited Vulnerabilities (KEV) catalog.")
+        return
+
+    print_step_context("display_cisa_kev")
+    
+    panel_content = [
+        Text(f"{EMOJI_WARNING} CVE {cve_id} is LISTED in CISA's KEV Catalog! {EMOJI_WARNING}", style="bold red on yellow"),
+        Text(f"\nVendor: [bold]{kev_entry.get('vendorProject', 'N/A')}[/bold]"),
+        Text(f"Product: [bold]{kev_entry.get('product', 'N/A')}[/bold]"),
+        Text(f"Vulnerability Name: [italic]{kev_entry.get('vulnerabilityName', 'N/A')}[/italic]"),
+        Text(f"Date Added to KEV: {kev_entry.get('dateAdded', 'N/A')}"),
+        Text(f"\nShort Description: {kev_entry.get('shortDescription', 'N/A')}"),
+        Text(f"Required Action: {kev_entry.get('requiredAction', 'N/A')}"),
+        Text(f"Due Date for Action: {kev_entry.get('dueDate', 'N/A')}"),
+    ]
+    if kev_entry.get('notes'):
+        panel_content.append(Text(f"\nNotes: {kev_entry.get('notes')}"))
+
+    console.print(Panel(Group(*panel_content), title=f"{EMOJI_CISA} CISA KEV Details for {cve_id}", border_style="red", expand=True))
+
 
 def fetch_github_pocs(cve_id):
     """Searches GitHub for potential Proof-of-Concept code or exploits related to the CVE."""
@@ -270,7 +325,7 @@ def fetch_github_pocs(cve_id):
     
     GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
     if GITHUB_TOKEN:
-        headers['Authorization'] = f"Bearer {GITHUB_TOKEN}" # Use Bearer for PATs as well, it's more standard
+        headers['Authorization'] = f"Bearer {GITHUB_TOKEN}" 
         console.print(f"{EMOJI_INFO} Using GITHUB_TOKEN for GitHub API requests.")
     else:
         console.print(f"{EMOJI_WARNING} [yellow]GITHUB_TOKEN environment variable not set. GitHub API requests will be unauthenticated and heavily rate-limited. This might lead to errors or incomplete results.[/yellow]")
@@ -278,7 +333,7 @@ def fetch_github_pocs(cve_id):
     with console.status(f"[bold green]Searching GitHub for PoCs related to {cve_id}...[/bold green]", spinner="dots"):
         for url_type, search_url in [("Code", search_url_code), ("Repositories", search_url_repos)]:
             try:
-                time.sleep(1) # Politeness, even with a token, helps avoid hitting secondary rate limits
+                time.sleep(1) 
                 response = requests.get(search_url, headers=headers, timeout=20)
                 
                 if response.status_code == 401:
@@ -287,9 +342,9 @@ def fetch_github_pocs(cve_id):
                         console.print(f"{EMOJI_WARNING} [yellow]This is likely due to a missing or invalid GITHUB_TOKEN. Please set the GITHUB_TOKEN environment variable with a valid Personal Access Token.[/yellow]")
                     else:
                         console.print(f"{EMOJI_WARNING} [yellow]Your GITHUB_TOKEN might be invalid or lack necessary permissions for search.[/yellow]")
-                    continue # Skip this search type if unauthorized
+                    continue 
 
-                response.raise_for_status() # Raise HTTPError for other bad responses (4xx or 5xx)
+                response.raise_for_status() 
                 results = response.json()
                 
                 if results.get("items"):
@@ -314,7 +369,6 @@ def fetch_github_pocs(cve_id):
                     break 
 
             except requests.exceptions.HTTPError as e:
-                # Catching other HTTP errors that are not 401 (already handled)
                 console.print(f"{EMOJI_ERROR} [red]GitHub API HTTP Error ({url_type}): {e.response.status_code}. Message: {e.response.text[:200]}[/red]")
             except requests.exceptions.RequestException as e:
                 console.print(f"{EMOJI_ERROR} [red]Error searching GitHub ({url_type}): {e}[/red]")
@@ -728,6 +782,7 @@ def main():
     parser.add_argument("cve", help="CVE ID to process (e.g., CVE-2023-12345)")
     parser.add_argument("--skip-llm", action="store_true", help="Skip all LLM-based analysis and generation steps.")
     parser.add_argument("--skip-debian", action="store_true", help="Skip fetching data from Debian Security Tracker.")
+    parser.add_argument("--skip-cisa-kev", action="store_true", help="Skip fetching CISA KEV catalog data.")
     parser.add_argument("--skip-pocs", action="store_true", help="Skip searching for PoCs on GitHub.")
 
 
@@ -745,6 +800,13 @@ def main():
     debian_data = None
     if not args.skip_debian:
         debian_data = fetch_debian_security_data(cve_id)
+
+    cisa_kev_catalog = None
+    cisa_kev_entry_for_cve = None
+    if not args.skip_cisa_kev:
+        cisa_kev_catalog = fetch_cisa_kev_data()
+        if cisa_kev_catalog:
+            cisa_kev_entry_for_cve = check_cve_in_kev(cve_id, cisa_kev_catalog)
 
     github_pocs = []
     if not args.skip_pocs:
@@ -767,6 +829,12 @@ def main():
         console.print(Panel(f"Identified CWE: [bold cyan]{cwe_id}[/bold cyan]", title=f"{EMOJI_CHECK} CWE Information", border_style="cyan", expand=False))
     else:
         console.print(f"{EMOJI_INFO} No CWE ID found in NVD or MITRE data for {cve_id}.")
+
+    if cisa_kev_entry_for_cve:
+        display_cisa_kev_info(cisa_kev_entry_for_cve, cve_id)
+    elif not args.skip_cisa_kev: # Only print if not skipped and not found
+        console.print(f"{EMOJI_INFO} CVE {cve_id} not found in CISA's KEV catalog.")
+
 
     if debian_data:
         display_debian_data(debian_data, cve_id)
