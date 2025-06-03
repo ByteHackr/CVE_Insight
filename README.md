@@ -30,22 +30,22 @@ Set environment variables for custom model or host:
     export OLLAMA_MODEL="your_chosen_model"        # e.g., gemma3:12b
     export OLLAMA_HOST="http://your-ollama-server-ip:11434"  # If different from default
 
-🔐 GitHub API Token Setup (Optional)
+## 🔐 GitHub API Token Setup
 
-For enhanced GitHub PoC search capabilities and to avoid rate-limiting:
+   For enhanced GitHub PoC search capabilities and to avoid rate-limiting:
 
-  Create a GitHub Personal Access Token (PAT)
+   Create a GitHub Personal Access Token (PAT)
   
-  No specific scopes are typically needed for public search.
+   No specific scopes are typically needed for public search.
 
-  Set the token as an environment variable
+   Set the token as an environment variable
 
     export GITHUB_TOKEN="your_github_personal_access_token"
 
   Add to your shell profile for persistence
   Add the above export line to your .bashrc, .zshrc, or shell config file.
 
-📦 Installation
+## 📦 Installation
 
 Clone the repository
 
@@ -56,15 +56,8 @@ Install dependencies
 
     pip install -r requirements.txt
 
-        requirements.txt should contain:
 
-            requests
-
-            ollama
-
-            rich
-
-🚀 How to Run
+## 🚀 How to Run
 
 Execute the script with a CVE ID:
 
@@ -82,12 +75,12 @@ Execute the script with a CVE ID:
 
     --skip-pocs: Skip searching GitHub for Proof-of-Concept exploits.
 
-⚠️ Disclaimer
+## ⚠️ Disclaimer
 
 This tool aggregates publicly available data for educational and research purposes only.
 Always verify any critical security information from official sources.
 Use caution when handling or executing any Proof-of-Concept (PoC) code.
 
-🧑‍💻 Author @ByteHackr
+## 🧑‍💻 Author @ByteHackr
 
 For questions, issues, or contributions, feel free to open an issue or pull request on GitHub.
